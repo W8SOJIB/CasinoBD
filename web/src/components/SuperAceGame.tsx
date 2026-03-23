@@ -592,7 +592,7 @@ export default function SuperAceGame() {
                     ) : symbol === "X" ? (
                       <>
                         <Image
-                          src="/SCATTER.jpg"
+                          src="/SCATTER.png"
                           alt="SCATTER"
                           width={48}
                           height={48}

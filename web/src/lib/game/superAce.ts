@@ -33,7 +33,7 @@ export const SYMBOLS: Record<
   X: { id: "X", valueTimes100: 0 },
 };
 
-const WEIGHTS: SymbolId[] = [
+const BASE_WEIGHTS: SymbolId[] = [
   "C",
   "C",
   "C",
@@ -50,9 +50,11 @@ const WEIGHTS: SymbolId[] = [
   "Q",
   "K",
   "A",
-  // SCATTER is rare
-  "X",
 ];
+
+// SCATTER should be rare. We heavily dilute it by repeating normal weights.
+// With 3x base weights + 1x scatter => P(scatter) ~= 1 / 46 ~= 2.2% per card.
+const WEIGHTS: SymbolId[] = [...BASE_WEIGHTS, ...BASE_WEIGHTS, ...BASE_WEIGHTS, "X"];
 
 export type Coord = { c: number; r: number };
 
@@ -188,11 +190,8 @@ export function simulateSuperAceSpin(params: {
     }
   }
 
-  // Not every scatter trigger always grants free spins (matches "rare" behavior).
-  // If scatterCount >= 3, free spins trigger with probability TRIGGER_CHANCE%.
-  const TRIGGER_CHANCE = 50; // 50% demo chance
-  const freeSpinsAwarded =
-    scatterCount >= 3 && getRandomIntExclusive(100) < TRIGGER_CHANCE ? 10 : 0;
+  // Free-spins are awarded later after we know whether the spin actually won.
+  let freeSpinsAwarded = 0;
 
   // Space Card bonus: random chance to double wins if there is any win.
   // (Probability tuned for demo; adjust later.)
@@ -254,6 +253,20 @@ export function simulateSuperAceSpin(params: {
     // Double all step payouts while keeping winning coords/grids the same.
     for (const step of steps) {
       step.payoutCents *= 2;
+    }
+  }
+
+  // SCATTER bonus:
+  // - If scatterCount == 3: award free spins with a rare chance (5%) and only if the paid spin won.
+  // - If scatterCount >= 4: award free spins (100%) and only if the paid spin won.
+  // (This matches your "3 is rare, 4 is guaranteed" requirement.)
+  const hadWin = balanceWinCents > 0;
+  if (hadWin && scatterCount >= 3) {
+    if (scatterCount >= 4) {
+      freeSpinsAwarded = 10;
+    } else {
+      // scatterCount === 3
+      freeSpinsAwarded = getRandomIntExclusive(100) < 5 ? 10 : 0;
     }
   }
   return {

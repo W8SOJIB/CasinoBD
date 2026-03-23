@@ -105,6 +105,11 @@ export async function POST(req: NextRequest) {
       freeSpinsAwardedNow = freeSpinsToAwardNow;
       newFreeSpins += freeSpinsToAwardNow;
 
+      // Safety cap: never allow freeSpins to grow above 20.
+      if (newFreeSpins > 20) {
+        throw new Error("FREE_SPINS_LIMIT");
+      }
+
       // Update user balance
       tx.set(
         userRef,
@@ -232,6 +237,8 @@ export async function POST(req: NextRequest) {
           ? 403
           : message === "NO_FREE_SPINS"
             ? 400
+            : message === "FREE_SPINS_LIMIT"
+              ? 400
             : 401;
     return NextResponse.json({ error: message }, { status });
   }
