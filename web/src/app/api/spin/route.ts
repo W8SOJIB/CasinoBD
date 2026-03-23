@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getFirestore, serverTimestamp } from "@/lib/firebase/admin";
+import { getAuth, getFirestore, serverTimestamp } from "@/lib/firebase/admin";
 import { requireFirebaseAuth } from "@/lib/auth/requireFirebaseAuth";
 import { BET_STEPS, simulateSuperAceSpin } from "@/lib/game/superAce";
 
@@ -16,6 +16,13 @@ export async function POST(req: NextRequest) {
   try {
     const { uid } = await requireFirebaseAuth(req);
     const firestore = getFirestore();
+    const auth = getAuth();
+
+    // Deny if Firebase account is disabled.
+    const authUser = await auth.getUser(uid);
+    if (authUser.disabled) {
+      return NextResponse.json({ error: "USER_DISABLED" }, { status: 403 });
+    }
 
     const body = await req.json().catch(() => null);
     const parsed = bodySchema.safeParse(body);
@@ -56,6 +63,10 @@ export async function POST(req: NextRequest) {
 
       const userRef = firestore.collection("users").doc(uid);
       const userSnap = await tx.get(userRef);
+      const banned = userSnap.exists && userSnap.data()?.banned === true;
+      if (banned) {
+        throw new Error("USER_BANNED");
+      }
       const balanceCents =
         userSnap.exists && typeof userSnap.data()?.balanceCents === "number"
           ? (userSnap.data()!.balanceCents as number)
@@ -160,7 +171,8 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unauthorized";
-    const status = message === "INSUFFICIENT_BALANCE" ? 400 : 401;
+    const status =
+      message === "INSUFFICIENT_BALANCE" ? 400 : message === "USER_BANNED" ? 403 : 401;
     return NextResponse.json({ error: message }, { status });
   }
 }

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getFirestore, serverTimestamp } from "@/lib/firebase/admin";
-import { requireFirebaseAuth, isAdminFromClaims } from "@/lib/auth/requireFirebaseAuth";
+import { requireAdminSession } from "@/lib/auth/adminSession";
 
 const adjustSchema = z.object({
   uid: z.string().min(6),
@@ -13,10 +13,8 @@ const adjustSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const { uid: adminUid, claims } = await requireFirebaseAuth(req);
-    if (!isAdminFromClaims(claims)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const session = requireAdminSession(req);
+    const adminUid = session.username;
 
     const firestore = getFirestore();
     const body = await req.json().catch(() => null);

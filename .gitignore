@@ -1,0 +1,15 @@
+# Ignore Firebase service account keys accidentally downloaded locally.
+csinobd-firebase-adminsdk-*.json
+
+# Never commit environment files
+.env
+.env.*
+web/.env
+web/.env.*
+
+# Node artifacts (just in case)
+node_modules/
+.next/
+web/node_modules/
+web/.next/
+

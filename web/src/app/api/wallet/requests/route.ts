@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getFirestore } from "@/lib/firebase/admin";
+import { getAuth, getFirestore } from "@/lib/firebase/admin";
 import { requireFirebaseAuth } from "@/lib/auth/requireFirebaseAuth";
 import { serverTimestamp } from "@/lib/firebase/admin";
 
@@ -35,6 +35,14 @@ export async function POST(req: NextRequest) {
   try {
     const { uid } = await requireFirebaseAuth(req);
     const firestore = getFirestore();
+    const auth = getAuth();
+
+    // Deny if Firebase account is disabled.
+    const authUser = await auth.getUser(uid);
+    if (authUser.disabled) {
+      return NextResponse.json({ error: "USER_DISABLED" }, { status: 403 });
+    }
+
     const body = await req.json().catch(() => null);
     const parsed = createRequestSchema.safeParse(body);
     if (!parsed.success) {
@@ -42,6 +50,12 @@ export async function POST(req: NextRequest) {
     }
 
     const { type, amountCents, note } = parsed.data;
+
+    const userSnap = await firestore.collection("users").doc(uid).get();
+    const banned = userSnap.exists && userSnap.data()?.banned === true;
+    if (banned) {
+      return NextResponse.json({ error: "USER_BANNED" }, { status: 403 });
+    }
 
     const ref = firestore.collection("depositWithdrawRequests").doc();
     await ref.set({

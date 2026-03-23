@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getFirestore, serverTimestamp } from "@/lib/firebase/admin";
-import { requireFirebaseAuth, isAdminFromClaims } from "@/lib/auth/requireFirebaseAuth";
+import { requireAdminSession } from "@/lib/auth/adminSession";
 
 const approveSchema = z.object({
   requestId: z.string().min(6),
@@ -13,10 +13,7 @@ const approveSchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const { claims } = await requireFirebaseAuth(req);
-    if (!isAdminFromClaims(claims)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    requireAdminSession(req);
 
     const firestore = getFirestore();
     const q = await firestore
@@ -28,17 +25,22 @@ export async function GET(req: NextRequest) {
 
     const requests = q.docs.map((d) => ({ id: d.id, ...(d.data() as object) }));
     return NextResponse.json({ requests });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (err) {
+    const status =
+      err &&
+      typeof err === "object" &&
+      "status" in err &&
+      typeof (err as { status?: unknown }).status === "number"
+        ? (err as { status: number }).status
+        : 401;
+    return NextResponse.json({ error: "Unauthorized" }, { status });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { uid: adminUid, claims } = await requireFirebaseAuth(req);
-    if (!isAdminFromClaims(claims)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const session = requireAdminSession(req);
+    const adminUid = session.username;
 
     const firestore = getFirestore();
     const body = await req.json().catch(() => null);

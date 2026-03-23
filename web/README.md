@@ -40,5 +40,9 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 2. In Netlify environment variables, add the values from `./.env.example`:
    - `NEXT_PUBLIC_FIREBASE_*` (client auth)
    - `FIREBASE_SERVICE_ACCOUNT_JSON` (admin SDK)
-3. In Firebase Auth, mark admin users with custom claims:
-   - `role: "admin"` (or `admin: true`)
+3. Also set admin login env vars from `./.env.example`:
+   - `ADMIN_USERNAME`
+   - `ADMIN_PASSWORD`
+   - `ADMIN_SESSION_SECRET`
+
+On first successful admin login, the app seeds `adminUsers/{ADMIN_USERNAME}` in Firestore and enables `/admin`.

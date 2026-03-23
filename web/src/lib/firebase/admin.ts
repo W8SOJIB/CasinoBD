@@ -38,6 +38,11 @@ export function serverTimestamp() {
   return admin.firestore.FieldValue.serverTimestamp();
 }
 
+export function getAuth() {
+  initAdmin();
+  return admin.auth();
+}
+
 export async function verifyFirebaseIdToken(idToken: string) {
   initAdmin();
   return admin.auth().verifyIdToken(idToken);
