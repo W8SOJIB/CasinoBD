@@ -15,10 +15,16 @@ export async function GET(req: NextRequest) {
         ? (snap.data()!.balanceCents as number)
         : 0;
 
+    const freeSpins =
+      snap.exists && typeof snap.data()?.freeSpins === "number"
+        ? (snap.data()!.freeSpins as number)
+        : 0;
+
     return NextResponse.json({
       uid,
       balanceCents,
       balance: balanceCents / 100,
+      freeSpins,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unauthorized";

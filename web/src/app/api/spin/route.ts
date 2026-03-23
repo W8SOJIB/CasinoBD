@@ -10,6 +10,7 @@ import { BET_STEPS, simulateSuperAceSpin } from "@/lib/game/superAce";
 const bodySchema = z.object({
   bet: z.number().int().nonnegative(),
   idempotencyKey: z.string().min(6).optional(),
+  mode: z.enum(["paid", "free"]).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest) {
     }
 
     const bet = parsed.data.bet;
+    const mode = parsed.data.mode ?? "paid";
     if (!BET_STEPS.includes(bet as (typeof BET_STEPS)[number])) {
       return NextResponse.json({ error: "Invalid bet amount." }, { status: 400 });
     }
@@ -72,40 +74,64 @@ export async function POST(req: NextRequest) {
           ? (userSnap.data()!.balanceCents as number)
           : 0;
 
-      if (balanceCents < betCents) {
-        throw new Error("INSUFFICIENT_BALANCE");
-      }
+      const freeSpins =
+        userSnap.exists && typeof userSnap.data()?.freeSpins === "number"
+          ? (userSnap.data()!.freeSpins as number)
+          : 0;
 
       const totalWinCents = spinResult.totalWinCents;
-      const newBalanceCents = balanceCents - betCents + totalWinCents;
+      let newBalanceCents = balanceCents;
+      let newFreeSpins = freeSpins;
+
+      if (mode === "paid") {
+        if (balanceCents < betCents) {
+          throw new Error("INSUFFICIENT_BALANCE");
+        }
+        newBalanceCents = balanceCents - betCents + totalWinCents;
+      } else {
+        if (freeSpins < 1) {
+          throw new Error("NO_FREE_SPINS");
+        }
+        newBalanceCents = balanceCents + totalWinCents;
+        newFreeSpins = freeSpins - 1;
+      }
+
+      // Award additional free spins on scatter trigger.
+      newFreeSpins += spinResult.freeSpinsAwarded;
 
       // Update user balance
       tx.set(
         userRef,
         {
           balanceCents: newBalanceCents,
+          freeSpins: newFreeSpins,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
 
       // Ledger: bet debit
-      tx.set(ledgerDebitRef, {
-        uid,
-        type: "spin_bet_debit",
-        amountCents: -betCents,
-        beforeBalanceCents: balanceCents,
-        afterBalanceCents: balanceCents - betCents,
-        createdAt: serverTimestamp(),
-        ref: spinRef.id,
-      });
+      if (mode === "paid") {
+        tx.set(ledgerDebitRef, {
+          uid,
+          type: "spin_bet_debit",
+          amountCents: -betCents,
+          beforeBalanceCents: balanceCents,
+          afterBalanceCents: balanceCents - betCents,
+          createdAt: serverTimestamp(),
+          ref: spinRef.id,
+        });
+      }
+
+      const payoutBeforeBalanceCents =
+        mode === "paid" ? balanceCents - betCents : balanceCents;
 
       // Ledger: payout credit
       tx.set(ledgerCreditRef, {
         uid,
-        type: "spin_payout_credit",
+        type: mode === "paid" ? "spin_payout_credit" : "spin_free_payout_credit",
         amountCents: totalWinCents,
-        beforeBalanceCents: balanceCents - betCents,
+        beforeBalanceCents: payoutBeforeBalanceCents,
         afterBalanceCents: newBalanceCents,
         createdAt: serverTimestamp(),
         ref: spinRef.id,
@@ -117,6 +143,11 @@ export async function POST(req: NextRequest) {
         createdAt: serverTimestamp(),
         betCents,
         totalWinCents,
+        mode,
+        scatterCount: spinResult.scatterCount,
+        freeSpinsAwarded: spinResult.freeSpinsAwarded,
+        specialCardTriggered: spinResult.specialCardTriggered,
+        specialCardDoubled: spinResult.specialCardDoubled,
         // Firestore does not allow nested arrays, so we store grids/steps as JSON strings.
         initialGridJson: JSON.stringify(spinResult.initialGrid),
         stepsJson: JSON.stringify(spinResult.steps),
@@ -157,6 +188,10 @@ export async function POST(req: NextRequest) {
       userSnap.exists && typeof userSnap.data()?.balanceCents === "number"
         ? (userSnap.data()!.balanceCents as number)
         : 0;
+    const freeSpins =
+      userSnap.exists && typeof userSnap.data()?.freeSpins === "number"
+        ? (userSnap.data()!.freeSpins as number)
+        : 0;
 
     return NextResponse.json({
       ok: true,
@@ -176,11 +211,22 @@ export async function POST(req: NextRequest) {
         typeof spinData.finalGridJson === "string"
           ? JSON.parse(spinData.finalGridJson)
           : spinData.finalGrid,
+      freeSpinsLeft: freeSpins,
+      scatterCount: spinData.scatterCount ?? 0,
+      freeSpinsAwarded: spinData.freeSpinsAwarded ?? 0,
+      specialCardTriggered: Boolean(spinData.specialCardTriggered),
+      specialCardDoubled: Boolean(spinData.specialCardDoubled),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unauthorized";
     const status =
-      message === "INSUFFICIENT_BALANCE" ? 400 : message === "USER_BANNED" ? 403 : 401;
+      message === "INSUFFICIENT_BALANCE"
+        ? 400
+        : message === "USER_BANNED"
+          ? 403
+          : message === "NO_FREE_SPINS"
+            ? 400
+            : 401;
     return NextResponse.json({ error: message }, { status });
   }
 }

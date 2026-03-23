@@ -9,7 +9,8 @@ export const BET_STEPS = [1, 2, 5, 10, 20, 50, 100] as const;
 export type Multiplier = (typeof MULTIPLIERS)[number];
 export type BetStep = (typeof BET_STEPS)[number];
 
-export type SymbolId = "A" | "K" | "Q" | "J" | "S" | "H" | "D" | "C";
+// X is SCATTER (free-spins trigger, not a payout symbol)
+export type SymbolId = "A" | "K" | "Q" | "J" | "S" | "H" | "D" | "C" | "X";
 
 // Keep valueTimes100 integer to avoid float rounding drift.
 // payoutCents = (ways * valueTimes100 * betCents * multiplier) / 100
@@ -29,6 +30,7 @@ export const SYMBOLS: Record<
   H: { id: "H", valueTimes100: 40 },
   D: { id: "D", valueTimes100: 20 },
   C: { id: "C", valueTimes100: 20 },
+  X: { id: "X", valueTimes100: 0 },
 };
 
 const WEIGHTS: SymbolId[] = [
@@ -48,6 +50,9 @@ const WEIGHTS: SymbolId[] = [
   "Q",
   "K",
   "A",
+  "X",
+  "X",
+  "X",
 ];
 
 export type Coord = { c: number; r: number };
@@ -64,6 +69,10 @@ export type SuperAceSpinResult = {
   steps: SuperAceStep[];
   finalGrid: SymbolId[][];
   totalWinCents: number;
+  scatterCount: number;
+  freeSpinsAwarded: number;
+  specialCardTriggered: boolean;
+  specialCardDoubled: boolean;
 };
 
 function getRandomIntExclusive(maxExclusive: number) {
@@ -109,6 +118,9 @@ function evaluateWins(params: {
 
   // Check each unique symbol from left to right
   for (const symId of uniqueSymbolsCol0) {
+    // Scatter does not pay in this implementation; it's only a trigger.
+    if (symId === "X") continue;
+
     const colCounts = [0, 0, 0, 0, 0];
     const coordsForSymbol: Coord[] = [];
 
@@ -170,6 +182,20 @@ export function simulateSuperAceSpin(params: {
   let grid = initGrid();
   const initialGrid = grid.map((col) => [...col]);
 
+  let scatterCount = 0;
+  for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < ROWS; r++) {
+      if (initialGrid[c]![r]! === "X") scatterCount += 1;
+    }
+  }
+
+  const freeSpinsAwarded = scatterCount >= 3 ? 10 : 0;
+
+  // Space Card bonus: random chance to double wins if there is any win.
+  // (Probability tuned for demo; adjust later.)
+  const specialCardTriggered = getRandomIntExclusive(100) < 15;
+  let specialCardDoubled = false;
+
   const steps: SuperAceStep[] = [];
   let hasWins = true;
 
@@ -218,11 +244,24 @@ export function simulateSuperAceSpin(params: {
   }
 
   const finalGrid = grid.map((col) => [...col]);
+
+  if (specialCardTriggered && balanceWinCents > 0) {
+    specialCardDoubled = true;
+    balanceWinCents *= 2;
+    // Double all step payouts while keeping winning coords/grids the same.
+    for (const step of steps) {
+      step.payoutCents *= 2;
+    }
+  }
   return {
     initialGrid,
     steps,
     finalGrid,
     totalWinCents: balanceWinCents,
+    scatterCount,
+    freeSpinsAwarded,
+    specialCardTriggered,
+    specialCardDoubled,
   };
 }
 

@@ -19,6 +19,11 @@ type SpinResponse = {
   initialGrid: SymbolId[][];
   steps: SpinStep[];
   finalGrid: SymbolId[][];
+  freeSpinsLeft: number;
+  scatterCount: number;
+  freeSpinsAwarded: number;
+  specialCardTriggered: boolean;
+  specialCardDoubled: boolean;
 };
 
 const symbolUi: Record<
@@ -87,6 +92,13 @@ const symbolUi: Record<
     label: "",
     sub: "",
   },
+  X: {
+    bgClass: "card-K",
+    colorClass: "text-yellow-300",
+    char: "💠",
+    label: "",
+    sub: "SCATTER",
+  },
 };
 
 function formatUnitsFromCents(cents: number) {
@@ -116,6 +128,9 @@ const DUMMY_WEIGHTS: SymbolId[] = [
   "Q",
   "K",
   "A",
+  "X",
+  "X",
+  "X",
 ];
 
 function createDummyGrid(): SymbolId[][] {
@@ -162,6 +177,10 @@ export default function SuperAceGame() {
 
   const [showBigWin, setShowBigWin] = useState(false);
   const [bigWinUnits, setBigWinUnits] = useState("0.00");
+
+  const [freeSpinsLeft, setFreeSpinsLeft] = useState(0);
+  const [showSpaceCardBonus, setShowSpaceCardBonus] = useState(false);
+  const [spaceCardBonusText, setSpaceCardBonusText] = useState("");
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -239,6 +258,9 @@ export default function SuperAceGame() {
       if (cancelled) return;
       if (res.ok && typeof data?.balanceCents === "number") {
         setBalanceCents(data.balanceCents);
+        if (typeof data?.freeSpins === "number") {
+          setFreeSpinsLeft(data.freeSpins);
+        }
       }
     }
 
@@ -250,26 +272,28 @@ export default function SuperAceGame() {
 
   // Note: initial grid is created synchronously in state initializer (lint-friendly).
 
-  async function handleSpin() {
-    if (!user) return;
-    if (isSpinning) return;
+  async function spinOnce(mode: "paid" | "free") {
+    if (!user) throw new Error("Not authenticated.");
 
     const idToken = await user.getIdToken();
     const bet = currentBet;
     const idempotencyKey = crypto.randomUUID();
 
-    setIsSpinning(true);
+    // Reset visuals for each spin.
     setWinningCoords([]);
     setDestroyingCoords([]);
     setIsFalling(false);
     setShowBigWin(false);
+    setShowSpaceCardBonus(false);
+    setSpaceCardBonusText("");
     setCurrentWinCents(0);
     setCurrentMultiplierIndex(0);
 
-    // Optimistic UI: show the bet deduction immediately
-    setBalanceCents((prev) => prev - bet * 100);
+    if (mode === "paid") {
+      // Optimistic UI: show the bet deduction immediately.
+      setBalanceCents((prev) => prev - bet * 100);
+    }
 
-    // Sound + initial spin sound
     initAudio();
     playSpinSound();
 
@@ -279,16 +303,23 @@ export default function SuperAceGame() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${idToken}`,
       },
-      body: JSON.stringify({ bet, idempotencyKey }),
+      body: JSON.stringify({ bet, idempotencyKey, mode }),
     });
 
-    const data: SpinResponse & { error?: string } = await res.json().catch(() => null);
+    const data: SpinResponse & { error?: string } = await res
+      .json()
+      .catch(() => null);
     if (!res.ok || !data || data.error) {
-      setIsSpinning(false);
-      // revert optimistic balance deduction (best-effort)
-      setBalanceCents((prev) => prev + bet * 100);
-      alert(data?.error ?? "Spin failed");
-      return;
+      if (mode === "paid") setBalanceCents((prev) => prev + bet * 100);
+      throw new Error(data?.error ?? "Spin failed");
+    }
+
+    // Bonus overlay (auto-open)
+    if (data.specialCardDoubled) {
+      setShowSpaceCardBonus(true);
+      setSpaceCardBonusText("SPACE CARD x2");
+      await sleep(900);
+      setShowSpaceCardBonus(false);
     }
 
     setGrid(data.initialGrid);
@@ -304,19 +335,16 @@ export default function SuperAceGame() {
       winAccum += step.payoutCents;
       setCurrentWinCents(winAccum);
 
-      // Highlight winners
       setWinningCoords(step.winningCoords);
       setDestroyingCoords([]);
       playWinSound();
       await sleep(800);
 
-      // Destroy winners
       setDestroyingCoords(step.winningCoords);
       setWinningCoords([]);
       playCascadeSound();
       await sleep(400);
 
-      // Apply cascade grid
       setGrid(step.gridAfter);
       setDestroyingCoords([]);
       await sleep(600);
@@ -324,15 +352,45 @@ export default function SuperAceGame() {
 
     if (winAccum > 0) {
       setBigWinUnits((winAccum / 100).toFixed(2));
-      playWinSound();
       setShowBigWin(true);
+      playWinSound();
       await sleep(1500);
       setShowBigWin(false);
     }
 
-    // Server authoritative balance
+    // Server authoritative balance & free spins
     setBalanceCents(data.balanceCents);
-    setIsSpinning(false);
+    setFreeSpinsLeft(data.freeSpinsLeft);
+
+    return data;
+  }
+
+  async function handleSpin() {
+    if (!user) return;
+    if (isSpinning) return;
+
+    setIsSpinning(true);
+
+    try {
+      const paid = await spinOnce("paid");
+
+      // Auto-play free spins if we awarded any on this paid spin.
+      if (paid.freeSpinsAwarded > 0) {
+        let remaining = paid.freeSpinsLeft;
+        let safety = 0;
+        while (remaining > 0 && safety < 50) {
+          safety++;
+          await sleep(250);
+          const freeRes = await spinOnce("free");
+          remaining = freeRes.freeSpinsLeft;
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Spin failed";
+      alert(msg);
+    } finally {
+      setIsSpinning(false);
+    }
   }
 
   if (loading) {
@@ -372,6 +430,10 @@ export default function SuperAceGame() {
         <div className="flex items-center gap-3">
           <div>
             Balance: <span className="text-yellow-400 font-mono">{formatUnitsFromCents(balanceCents)}</span>
+          </div>
+          <div>
+            Free Spins:{" "}
+            <span className="text-green-400 font-mono">{freeSpinsLeft}</span>
           </div>
           <button
             onClick={() => signOut(getFirebaseAuth())}
@@ -426,6 +488,17 @@ export default function SuperAceGame() {
             </div>
           </div>
 
+          {/* Space card bonus overlay */}
+          <div
+            className={`absolute inset-0 z-30 pointer-events-none flex items-center justify-center transition-opacity duration-300 ${
+              showSpaceCardBonus ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <div className="bg-black/70 text-yellow-300 font-bold text-4xl title-font px-8 py-4 rounded-xl border-4 border-yellow-300 shadow-[0_0_30px_#eab308]">
+              {spaceCardBonusText}
+            </div>
+          </div>
+
           <div
             id="slot-grid"
             className="grid grid-cols-5 gap-1 w-full h-[60%] min-h-[300px] max-h-[500px] p-1 bg-gradient-to-b from-gray-700 to-gray-900 rounded-sm border-2 border-gray-500 shadow-xl"
@@ -457,6 +530,13 @@ export default function SuperAceGame() {
                           {ui.char}
                         </div>
                         <span className="absolute bg-black text-yellow-400 text-[10px] font-bold px-2 py-0.5 rounded-full z-10 -mt-1 shadow-md">
+                          {ui.sub}
+                        </span>
+                      </>
+                    ) : symbol === "X" ? (
+                      <>
+                        <div className={`text-4xl ${ui.colorClass}`}>{ui.char}</div>
+                        <span className="absolute bg-black/70 text-yellow-300 text-[10px] font-bold px-2 py-0.5 rounded-full z-10 -mt-1 shadow-md">
                           {ui.sub}
                         </span>
                       </>
