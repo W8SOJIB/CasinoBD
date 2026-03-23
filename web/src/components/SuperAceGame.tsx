@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
@@ -97,6 +97,8 @@ function formatWinFromCents(cents: number) {
   return (cents / 100).toFixed(3);
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const DUMMY_WEIGHTS: SymbolId[] = [
   "C",
   "C",
@@ -148,12 +150,71 @@ export default function SuperAceGame() {
   const [isSpinning, setIsSpinning] = useState(false);
 
   const [winningCoords, setWinningCoords] = useState<Coord[]>([]);
+  const [destroyingCoords, setDestroyingCoords] = useState<Coord[]>([]);
+  const [isFalling, setIsFalling] = useState(false);
   const winnerSet = useMemo(() => {
     return new Set(winningCoords.map((c) => `${c.c},${c.r}`));
   }, [winningCoords]);
 
+  const destroyingSet = useMemo(() => {
+    return new Set(destroyingCoords.map((c) => `${c.c},${c.r}`));
+  }, [destroyingCoords]);
+
   const [showBigWin, setShowBigWin] = useState(false);
   const [bigWinUnits, setBigWinUnits] = useState("0.00");
+
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  function initAudio() {
+    if (!audioCtxRef.current) {
+      const win = window as unknown as { webkitAudioContext?: typeof AudioContext };
+      const AudioContextCtor = window.AudioContext || win.webkitAudioContext;
+      if (!AudioContextCtor) return;
+      audioCtxRef.current = new AudioContextCtor();
+    }
+    if (audioCtxRef.current.state === "suspended") {
+      void audioCtxRef.current.resume();
+    }
+  }
+
+  function playTone(freq: number, type: OscillatorType, duration: number, vol = 0.1) {
+    if (!soundEnabled) return;
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration);
+  }
+
+  function playSpinSound() {
+    if (!soundEnabled) return;
+    let i = 0;
+    const interval = window.setInterval(() => {
+      playTone(300 + Math.random() * 400, "sine", 0.1, 0.05);
+      i++;
+      if (i > 8) window.clearInterval(interval);
+    }, 60);
+  }
+
+  function playWinSound() {
+    playTone(440, "triangle", 0.2, 0.1);
+    window.setTimeout(() => playTone(554, "triangle", 0.2, 0.1), 100);
+    window.setTimeout(() => playTone(659, "triangle", 0.4, 0.1), 200);
+  }
+
+  function playCascadeSound() {
+    playTone(800, "square", 0.1, 0.02);
+    window.setTimeout(() => playTone(600, "square", 0.1, 0.02), 50);
+  }
 
   useEffect(() => {
     const a = getFirebaseAuth();
@@ -199,12 +260,18 @@ export default function SuperAceGame() {
 
     setIsSpinning(true);
     setWinningCoords([]);
+    setDestroyingCoords([]);
+    setIsFalling(false);
     setShowBigWin(false);
     setCurrentWinCents(0);
     setCurrentMultiplierIndex(0);
 
     // Optimistic UI: show the bet deduction immediately
     setBalanceCents((prev) => prev - bet * 100);
+
+    // Sound + initial spin sound
+    initAudio();
+    playSpinSound();
 
     const res = await fetch("/api/spin", {
       method: "POST",
@@ -225,27 +292,41 @@ export default function SuperAceGame() {
     }
 
     setGrid(data.initialGrid);
+    setIsFalling(true);
+    await sleep(420);
+    setIsFalling(false);
 
-    // Cascade-ish animation: highlight each step, then replace grid.
     let winAccum = 0;
     for (let i = 0; i < data.steps.length; i++) {
       const step = data.steps[i]!;
       setCurrentMultiplierIndex(i);
-      setWinningCoords(step.winningCoords);
-      await new Promise((r) => setTimeout(r, 750));
 
       winAccum += step.payoutCents;
       setCurrentWinCents(winAccum);
 
-      setGrid(step.gridAfter);
+      // Highlight winners
+      setWinningCoords(step.winningCoords);
+      setDestroyingCoords([]);
+      playWinSound();
+      await sleep(800);
+
+      // Destroy winners
+      setDestroyingCoords(step.winningCoords);
       setWinningCoords([]);
-      await new Promise((r) => setTimeout(r, 500));
+      playCascadeSound();
+      await sleep(400);
+
+      // Apply cascade grid
+      setGrid(step.gridAfter);
+      setDestroyingCoords([]);
+      await sleep(600);
     }
 
     if (winAccum > 0) {
       setBigWinUnits((winAccum / 100).toFixed(2));
+      playWinSound();
       setShowBigWin(true);
-      await new Promise((r) => setTimeout(r, 1500));
+      await sleep(1500);
       setShowBigWin(false);
     }
 
@@ -352,13 +433,18 @@ export default function SuperAceGame() {
             {grid.map((col, c) =>
               col.map((symbol, r) => {
                 const ui = symbolUi[symbol];
-                const isWinning = winnerSet.has(`${c},${r}`);
+                const coordKey = `${c},${r}`;
+                const isWinning = winnerSet.has(coordKey);
+                const isDestroying = destroyingSet.has(coordKey);
                 return (
                   <div
                     key={`${c}-${r}`}
                     id={`card-${c}-${r}`}
+                    style={isFalling ? { animationDelay: `${c * 0.05}s` } : undefined}
                     className={`slot-card relative w-full h-full rounded-md border-2 border-white/80 shadow-inner flex flex-col items-center justify-center overflow-hidden ${ui.bgClass} ${
-                      isWinning ? "winning" : ""
+                      isFalling ? "falling" : ""
+                    } ${isDestroying ? "destroying" : ""} ${
+                      isWinning && !isDestroying ? "winning" : ""
                     }`}
                   >
                     <div className="absolute inset-0 bg-gradient-to-b from-white/40 to-transparent"></div>
@@ -402,15 +488,21 @@ export default function SuperAceGame() {
           </div>
 
           <div className="flex justify-between items-center px-2">
-            {/* Sound placeholder */}
+            {/* Sound toggle */}
             <button
+              id="btn-sound"
               className="w-10 h-10 rounded-full bg-blue-900 border border-blue-700 flex justify-center items-center text-white shadow-inner active:scale-95 transition-colors"
               onClick={() => {
-                /* MVP: no-op sound */
+                const next = !soundEnabled;
+                setSoundEnabled(next);
+                if (next) {
+                  initAudio();
+                  playTone(500, "sine", 0.08, 0.05);
+                }
               }}
               type="button"
             >
-              🔊
+              {soundEnabled ? "🔊" : "🔇"}
             </button>
 
             {/* Bet Control */}
