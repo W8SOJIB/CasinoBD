@@ -1,0 +1,158 @@
+@import url("https://fonts.googleapis.com/css2?family=Anton&family=Roboto:wght@700&display=swap");
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* -------- SuperAce game styling (ported from SuperAce Game.html) -------- */
+body {
+  background-color: #111;
+  color: #fff;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+* {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.title-font {
+  font-family: "Anton", sans-serif;
+}
+
+.casino-bg {
+  background: radial-gradient(circle at center, #0a4d46 0%, #03211e 100%);
+  box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.8);
+}
+
+.slot-card {
+  transition: transform 0.3s ease, opacity 0.3s ease, box-shadow 0.2s;
+  transform-style: preserve-3d;
+}
+
+.slot-card.falling {
+  animation: fallIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.slot-card.winning {
+  animation: pulseWin 0.6s infinite alternate;
+  box-shadow: 0 0 15px 5px rgba(250, 204, 21, 0.8);
+  border-color: #facc15;
+  z-index: 10;
+}
+
+.slot-card.destroying {
+  animation: shatter 0.4s forwards;
+}
+
+@keyframes fallIn {
+  0% {
+    transform: translateY(-150%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulseWin {
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes shatter {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+    filter: brightness(1.5);
+  }
+  100% {
+    transform: scale(0);
+    opacity: 0;
+    filter: brightness(2);
+  }
+}
+
+.spin-btn-active {
+  animation: spinRotate 1s linear infinite;
+}
+
+@keyframes spinRotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.header-bg {
+  background: linear-gradient(to bottom, #4a1c11 0%, #290804 100%);
+  border-bottom: 4px solid #1a0502;
+}
+
+.footer-bg {
+  background: linear-gradient(to top, #1a0502 0%, #4a1c11 100%);
+  border-top: 4px solid #facc15;
+  box-shadow: 0 -10px 20px rgba(0, 0, 0, 0.5);
+}
+
+.multiplier-active {
+  color: #fef08a !important;
+  text-shadow: 0 0 10px #ca8a04, 0 0 20px #eab308;
+  transform: scale(1.2);
+  transition: all 0.3s ease;
+}
+
+.multiplier-inactive {
+  color: #78716c;
+  text-shadow: 1px 1px 2px #000;
+  transition: all 0.3s ease;
+}
+
+/* Card graphics gradients */
+.card-A {
+  background: linear-gradient(135deg, #e5e7eb, #9ca3af);
+}
+.card-K {
+  background: linear-gradient(135deg, #fef08a, #eab308);
+}
+.card-Q {
+  background: linear-gradient(135deg, #fca5a5, #ef4444);
+}
+.card-J {
+  background: linear-gradient(135deg, #93c5fd, #3b82f6);
+}
+.card-S {
+  background: linear-gradient(135deg, #f3f4f6, #d1d5db);
+}
+

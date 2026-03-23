@@ -1,0 +1,477 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { onAuthStateChanged, signOut, type User } from "firebase/auth";
+
+import { getFirebaseAuth } from "@/lib/firebase/client";
+import type { Coord, SymbolId } from "@/lib/game/superAce";
+import { BET_STEPS, MULTIPLIERS, type BetStep } from "@/lib/game/superAce";
+
+type SpinStep = {
+  multiplier: (typeof MULTIPLIERS)[number];
+  payoutCents: number;
+  winningCoords: Coord[];
+  gridAfter: SymbolId[][];
+};
+
+type SpinResponse = {
+  balanceCents: number;
+  initialGrid: SymbolId[][];
+  steps: SpinStep[];
+  finalGrid: SymbolId[][];
+};
+
+const symbolUi: Record<
+  SymbolId,
+  {
+    bgClass: string;
+    colorClass: string;
+    char: string;
+    label: string;
+    sub: string;
+  }
+> = {
+  A: {
+    bgClass: "card-A",
+    colorClass: "text-black",
+    char: "♠️",
+    label: "A",
+    sub: "ACE",
+  },
+  K: {
+    bgClass: "card-K",
+    colorClass: "text-blue-900",
+    char: "🤴",
+    label: "K",
+    sub: "",
+  },
+  Q: {
+    bgClass: "card-Q",
+    colorClass: "text-red-900",
+    char: "👸",
+    label: "Q",
+    sub: "",
+  },
+  J: {
+    bgClass: "card-J",
+    colorClass: "text-blue-800",
+    char: "👱",
+    label: "",
+    sub: "",
+  },
+  S: {
+    bgClass: "card-S",
+    colorClass: "text-gray-800",
+    char: "♠️",
+    label: "",
+    sub: "",
+  },
+  H: {
+    bgClass: "card-S",
+    colorClass: "text-red-600",
+    char: "♥️",
+    label: "",
+    sub: "",
+  },
+  D: {
+    bgClass: "card-S",
+    colorClass: "text-red-600",
+    char: "♦️",
+    label: "",
+    sub: "",
+  },
+  C: {
+    bgClass: "card-S",
+    colorClass: "text-gray-800",
+    char: "♣️",
+    label: "",
+    sub: "",
+  },
+};
+
+function formatUnitsFromCents(cents: number) {
+  return (cents / 100).toFixed(2);
+}
+
+function formatWinFromCents(cents: number) {
+  return (cents / 100).toFixed(3);
+}
+
+const DUMMY_WEIGHTS: SymbolId[] = [
+  "C",
+  "C",
+  "C",
+  "D",
+  "D",
+  "D",
+  "H",
+  "H",
+  "S",
+  "S",
+  "J",
+  "J",
+  "Q",
+  "Q",
+  "K",
+  "A",
+];
+
+function createDummyGrid(): SymbolId[][] {
+  const ROWS = 4;
+  const COLS = 5;
+
+  const rand = () => DUMMY_WEIGHTS[Math.floor(Math.random() * DUMMY_WEIGHTS.length)]!;
+
+  const dummy: SymbolId[][] = [];
+  for (let c = 0; c < COLS; c++) {
+    const col: SymbolId[] = [];
+    for (let r = 0; r < ROWS; r++) {
+      col.push(rand());
+    }
+    dummy.push(col);
+  }
+  return dummy;
+}
+
+export default function SuperAceGame() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [balanceCents, setBalanceCents] = useState(0);
+  const [currentBetIndex, setCurrentBetIndex] = useState(1); // Starts at bet 2
+  const currentBet: BetStep = BET_STEPS[currentBetIndex]!;
+
+  const [currentWinCents, setCurrentWinCents] = useState(0);
+  const [currentMultiplierIndex, setCurrentMultiplierIndex] = useState(0);
+
+  const [grid, setGrid] = useState<SymbolId[][]>(() => createDummyGrid());
+  const [isSpinning, setIsSpinning] = useState(false);
+
+  const [winningCoords, setWinningCoords] = useState<Coord[]>([]);
+  const winnerSet = useMemo(() => {
+    return new Set(winningCoords.map((c) => `${c.c},${c.r}`));
+  }, [winningCoords]);
+
+  const [showBigWin, setShowBigWin] = useState(false);
+  const [bigWinUnits, setBigWinUnits] = useState("0.00");
+
+  useEffect(() => {
+    const a = getFirebaseAuth();
+    const unsub = onAuthStateChanged(a, (u) => {
+      setUser(u);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const currentUser = user;
+    let cancelled = false;
+
+    async function loadBalance() {
+      const idToken = await currentUser.getIdToken();
+      const res = await fetch("/api/balance", {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (cancelled) return;
+      if (res.ok && typeof data?.balanceCents === "number") {
+        setBalanceCents(data.balanceCents);
+      }
+    }
+
+    loadBalance();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  // Note: initial grid is created synchronously in state initializer (lint-friendly).
+
+  async function handleSpin() {
+    if (!user) return;
+    if (isSpinning) return;
+
+    const idToken = await user.getIdToken();
+    const bet = currentBet;
+    const idempotencyKey = crypto.randomUUID();
+
+    setIsSpinning(true);
+    setWinningCoords([]);
+    setShowBigWin(false);
+    setCurrentWinCents(0);
+    setCurrentMultiplierIndex(0);
+
+    // Optimistic UI: show the bet deduction immediately
+    setBalanceCents((prev) => prev - bet * 100);
+
+    const res = await fetch("/api/spin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ bet, idempotencyKey }),
+    });
+
+    const data: SpinResponse & { error?: string } = await res.json().catch(() => null);
+    if (!res.ok || !data || data.error) {
+      setIsSpinning(false);
+      // revert optimistic balance deduction (best-effort)
+      setBalanceCents((prev) => prev + bet * 100);
+      alert(data?.error ?? "Spin failed");
+      return;
+    }
+
+    setGrid(data.initialGrid);
+
+    // Cascade-ish animation: highlight each step, then replace grid.
+    let winAccum = 0;
+    for (let i = 0; i < data.steps.length; i++) {
+      const step = data.steps[i]!;
+      setCurrentMultiplierIndex(i);
+      setWinningCoords(step.winningCoords);
+      await new Promise((r) => setTimeout(r, 750));
+
+      winAccum += step.payoutCents;
+      setCurrentWinCents(winAccum);
+
+      setGrid(step.gridAfter);
+      setWinningCoords([]);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    if (winAccum > 0) {
+      setBigWinUnits((winAccum / 100).toFixed(2));
+      setShowBigWin(true);
+      await new Promise((r) => setTimeout(r, 1500));
+      setShowBigWin(false);
+    }
+
+    // Server authoritative balance
+    setBalanceCents(data.balanceCents);
+    setIsSpinning(false);
+  }
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center text-white">Loading...</div>;
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white">
+        <div className="text-center max-w-sm">
+          <div className="title-font text-3xl tracking-widest uppercase mb-4">
+            Super<span className="text-yellow-500">Ace</span>
+          </div>
+          <p className="text-sm text-gray-300 mb-6">
+            Please log in to play and manage your wallet.
+          </p>
+          <a
+            href="/login"
+            className="inline-block rounded-md bg-yellow-500 text-black px-4 py-2 font-bold"
+          >
+            Go to Login
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full min-h-screen flex flex-col items-center justify-center bg-black">
+      {/* Simple top bar */}
+      <div className="w-full max-w-md px-3 pt-3 pb-2 flex items-center justify-between text-xs text-gray-300">
+        <div className="flex items-center gap-2">
+          <span className="title-font text-white tracking-widest uppercase">
+            SuperAce
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div>
+            Balance: <span className="text-yellow-400 font-mono">{formatUnitsFromCents(balanceCents)}</span>
+          </div>
+          <button
+            onClick={() => signOut(getFirebaseAuth())}
+            className="rounded px-2 py-1 bg-gray-900 border border-gray-700 hover:bg-gray-800"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile container */}
+      <div className="relative w-full max-w-md h-[900px] flex flex-col bg-gray-900 shadow-2xl overflow-hidden border-x border-gray-800">
+        {/* HEADER */}
+        <div className="header-bg flex flex-col items-center pt-4 pb-2 relative z-10">
+          <h1 className="title-font text-4xl text-white tracking-widest uppercase mb-1 drop-shadow-[0_2px_2px_rgba(0,0,0,1)]">
+            Super<span className="text-yellow-500">Ace</span>
+          </h1>
+
+          {/* Multipliers */}
+          <div className="bg-black/60 rounded-full px-8 py-2 border-b-2 border-white/20 flex space-x-6 items-center">
+            {MULTIPLIERS.map((_, i) => {
+              const active = i === currentMultiplierIndex;
+              return (
+                <span
+                  key={i}
+                  id={`mult-${i}`}
+                  className={`title-font ${
+                    active ? "text-3xl multiplier-active" : "text-2xl multiplier-inactive"
+                  }`}
+                >
+                  x{MULTIPLIERS[i] ?? 1}
+                </span>
+              );
+            })}
+          </div>
+
+          <div className="text-xs text-gray-300 mt-1 bg-black/40 px-3 py-1 rounded-md">
+            Match from leftmost reel to win
+          </div>
+        </div>
+
+        {/* GRID AREA */}
+        <div className="flex-grow casino-bg flex items-center justify-center p-2 relative z-0">
+          {/* Win overlay */}
+          <div
+            className={`absolute inset-0 z-20 pointer-events-none flex items-center justify-center transition-opacity duration-300 ${
+              showBigWin ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <div className="bg-black/70 text-yellow-400 font-bold text-5xl title-font px-8 py-4 rounded-xl border-4 border-yellow-500 shadow-[0_0_30px_#eab308]">
+              WIN <span>{bigWinUnits}</span>
+            </div>
+          </div>
+
+          <div
+            id="slot-grid"
+            className="grid grid-cols-5 gap-1 w-full h-[60%] min-h-[300px] max-h-[500px] p-1 bg-gradient-to-b from-gray-700 to-gray-900 rounded-sm border-2 border-gray-500 shadow-xl"
+          >
+            {grid.map((col, c) =>
+              col.map((symbol, r) => {
+                const ui = symbolUi[symbol];
+                const isWinning = winnerSet.has(`${c},${r}`);
+                return (
+                  <div
+                    key={`${c}-${r}`}
+                    id={`card-${c}-${r}`}
+                    className={`slot-card relative w-full h-full rounded-md border-2 border-white/80 shadow-inner flex flex-col items-center justify-center overflow-hidden ${ui.bgClass} ${
+                      isWinning ? "winning" : ""
+                    }`}
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-b from-white/40 to-transparent"></div>
+                    {symbol === "A" ? (
+                      <>
+                        <span className={`absolute top-1 left-1 font-bold text-lg leading-none ${ui.colorClass}`}>
+                          {ui.label}
+                        </span>
+                        <div className={`text-4xl ${ui.colorClass} drop-shadow-[0_0_2px_#eab308]`}>
+                          {ui.char}
+                        </div>
+                        <span className="absolute bg-black text-yellow-400 text-[10px] font-bold px-2 py-0.5 rounded-full z-10 -mt-1 shadow-md">
+                          {ui.sub}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        {ui.label ? (
+                          <span className={`absolute top-1 left-1 font-bold text-lg leading-none ${ui.colorClass}`}>
+                            {ui.label}
+                          </span>
+                        ) : null}
+                        <div className={`text-4xl ${ui.colorClass}`}>{ui.char}</div>
+                      </>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* FOOTER / CONTROLS */}
+        <div className="footer-bg flex flex-col pt-2 pb-6 px-4 relative z-10">
+          {/* Win Display Bar */}
+          <div className="flex justify-center items-center mb-3">
+            <div className="text-yellow-400 font-bold text-xl mr-2">WIN</div>
+            <div className="bg-black/50 text-white font-mono text-xl px-4 py-1 rounded w-32 text-center border border-white/10">
+              {currentWinCents > 0 ? formatWinFromCents(currentWinCents) : "0.000"}
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center px-2">
+            {/* Sound placeholder */}
+            <button
+              className="w-10 h-10 rounded-full bg-blue-900 border border-blue-700 flex justify-center items-center text-white shadow-inner active:scale-95 transition-colors"
+              onClick={() => {
+                /* MVP: no-op sound */
+              }}
+              type="button"
+            >
+              🔊
+            </button>
+
+            {/* Bet Control */}
+            <div className="flex flex-col items-center">
+              <div className="flex items-center space-x-1 bg-black/60 rounded-full p-1 border border-white/10">
+                <button
+                  id="btn-bet-down"
+                  className="w-8 h-8 rounded-full bg-gradient-to-b from-red-600 to-red-800 text-white font-bold text-lg active:scale-90 shadow-md disabled:opacity-50"
+                  onClick={() => setCurrentBetIndex((i) => Math.max(0, i - 1))}
+                  disabled={isSpinning}
+                  type="button"
+                >
+                  -
+                </button>
+                <div className="text-white font-mono text-lg w-10 text-center" id="bet-display">
+                  {currentBet}
+                </div>
+                <button
+                  id="btn-bet-up"
+                  className="w-8 h-8 rounded-full bg-gradient-to-b from-green-600 to-green-800 text-white font-bold text-lg active:scale-90 shadow-md disabled:opacity-50"
+                  onClick={() => setCurrentBetIndex((i) => Math.min(BET_STEPS.length - 1, i + 1))}
+                  disabled={isSpinning}
+                  type="button"
+                >
+                  +
+                </button>
+              </div>
+              <div className="text-xs text-gray-400 mt-1">Bet</div>
+            </div>
+
+            {/* BIG SPIN BUTTON */}
+            <button
+              id="btn-spin"
+              disabled={isSpinning}
+              onClick={handleSpin}
+              className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-b from-yellow-300 via-yellow-500 to-yellow-700 border-4 border-yellow-200 shadow-[0_5px_15px_rgba(0,0,0,0.5),_inset_0_2px_10px_rgba(255,255,255,0.8)] transform active:scale-95 transition flex items-center justify-center z-20 group disabled:opacity-50 disabled:active:scale-100"
+              type="button"
+            >
+              <div
+                id="spin-icon"
+                className={`absolute inset-2 rounded-full border-4 border-dashed border-white/60 group-hover:border-white transition-colors flex items-center justify-center ${
+                  isSpinning ? "spin-btn-active" : ""
+                }`}
+              >
+                <svg className="w-8 h-8 text-white drop-shadow-md" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="3"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+              </div>
+              <span className="absolute text-yellow-900 font-bold title-font text-2xl tracking-wider pointer-events-none drop-shadow-sm">
+                JILI
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
