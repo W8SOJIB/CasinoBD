@@ -117,9 +117,10 @@ export async function POST(req: NextRequest) {
         createdAt: serverTimestamp(),
         betCents,
         totalWinCents,
-        initialGrid: spinResult.initialGrid,
-        steps: spinResult.steps,
-        finalGrid: spinResult.finalGrid,
+        // Firestore does not allow nested arrays, so we store grids/steps as JSON strings.
+        initialGridJson: JSON.stringify(spinResult.initialGrid),
+        stepsJson: JSON.stringify(spinResult.steps),
+        finalGridJson: JSON.stringify(spinResult.finalGrid),
         bet: bet,
         idempotencyKey,
       });
@@ -165,9 +166,16 @@ export async function POST(req: NextRequest) {
       balance: balanceCents / 100,
       betCents,
       totalWinCents: spinData.totalWinCents,
-      initialGrid: spinData.initialGrid,
-      steps: spinData.steps,
-      finalGrid: spinData.finalGrid,
+      initialGrid:
+        typeof spinData.initialGridJson === "string"
+          ? JSON.parse(spinData.initialGridJson)
+          : spinData.initialGrid,
+      steps:
+        typeof spinData.stepsJson === "string" ? JSON.parse(spinData.stepsJson) : spinData.steps,
+      finalGrid:
+        typeof spinData.finalGridJson === "string"
+          ? JSON.parse(spinData.finalGridJson)
+          : spinData.finalGrid,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unauthorized";
