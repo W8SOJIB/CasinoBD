@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import Image from "next/image";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 
@@ -191,6 +191,27 @@ export default function SuperAceGame() {
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const skipRequestedRef = useRef(false);
+  const hardSkipRef = useRef(false);
+  const lastTapAtRef = useRef(0);
+
+  function requestSkip(hard = false) {
+    skipRequestedRef.current = true;
+    if (hard) hardSkipRef.current = true;
+  }
+
+  async function waitOrSkip(ms: number) {
+    if (hardSkipRef.current) {
+      await sleep(20);
+      return;
+    }
+    if (skipRequestedRef.current) {
+      skipRequestedRef.current = false;
+      await sleep(70);
+      return;
+    }
+    await sleep(ms);
+  }
 
   function initAudio() {
     if (!audioCtxRef.current) {
@@ -333,13 +354,13 @@ export default function SuperAceGame() {
     if (data.specialCardDoubled) {
       setShowSpaceCardBonus(true);
       setSpaceCardBonusText("SPACE CARD x2");
-      await sleep(900);
+      await waitOrSkip(900);
       setShowSpaceCardBonus(false);
     }
 
     setGrid(data.initialGrid);
     setIsFalling(true);
-    await sleep(420);
+    await waitOrSkip(420);
     setIsFalling(false);
 
     let winAccum = 0;
@@ -353,23 +374,23 @@ export default function SuperAceGame() {
       setWinningCoords(step.winningCoords);
       setDestroyingCoords([]);
       playWinSound();
-      await sleep(800);
+      await waitOrSkip(800);
 
       setDestroyingCoords(step.winningCoords);
       setWinningCoords([]);
       playCascadeSound();
-      await sleep(400);
+      await waitOrSkip(400);
 
       setGrid(step.gridAfter);
       setDestroyingCoords([]);
-      await sleep(600);
+      await waitOrSkip(600);
     }
 
     if (winAccum > 0) {
       setBigWinUnits((winAccum / 100).toFixed(2));
       setShowBigWin(true);
       playWinSound();
-      await sleep(1500);
+      await waitOrSkip(1500);
       setShowBigWin(false);
     }
 
@@ -385,6 +406,8 @@ export default function SuperAceGame() {
     if (isSpinning) return;
 
     setIsSpinning(true);
+    skipRequestedRef.current = false;
+    hardSkipRef.current = false;
 
     try {
       const paid = await spinOnce("paid");
@@ -400,7 +423,7 @@ export default function SuperAceGame() {
         setFreeGameOpen(true);
 
         // small "intro" delay before starting free spins
-        await sleep(1200);
+        await waitOrSkip(1200);
 
         let sessionWinCents = 0;
         for (let i = 0; i < sessionSpins; i++) {
@@ -411,7 +434,7 @@ export default function SuperAceGame() {
 
         setFreeGameTotalWinUnits((sessionWinCents / 100).toFixed(2));
         setFreeGamePhase("done");
-        await sleep(2200);
+        await waitOrSkip(2200);
         setFreeGameOpen(false);
       }
     } catch (e) {
@@ -419,7 +442,24 @@ export default function SuperAceGame() {
       alert(msg);
     } finally {
       setIsSpinning(false);
+      skipRequestedRef.current = false;
+      hardSkipRef.current = false;
     }
+  }
+
+  function handleScreenTap(e: MouseEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("[data-screen-spin-ignore='true']")) return;
+
+    const now = Date.now();
+    const isDoubleTap = now - lastTapAtRef.current < 280;
+    lastTapAtRef.current = now;
+
+    if (isSpinning || freeGameOpen) {
+      requestSkip(isDoubleTap);
+      return;
+    }
+    void handleSpin();
   }
 
   if (loading) {
@@ -448,9 +488,15 @@ export default function SuperAceGame() {
   }
 
   return (
-    <div className="w-full min-h-dvh min-h-screen flex flex-col items-center justify-center bg-black overflow-hidden">
+    <div
+      className="w-full min-h-dvh min-h-screen flex flex-col items-center justify-center bg-black overflow-hidden"
+      onClick={handleScreenTap}
+    >
       {/* Simple top bar */}
-      <div className="w-full max-w-md px-2 pt-2 pb-1 flex items-center justify-between gap-2 text-[11px] text-gray-300">
+      <div
+        data-screen-spin-ignore="true"
+        className="w-full max-w-md px-2 pt-2 pb-1 flex items-center justify-between gap-2 text-[11px] text-gray-300"
+      >
         <div className="flex items-center gap-2">
           <span className="title-font text-white tracking-widest uppercase">
             SuperAce
@@ -664,7 +710,7 @@ export default function SuperAceGame() {
         </div>
 
         {/* FOOTER / CONTROLS */}
-        <div className="footer-bg flex flex-col pt-2 pb-4 px-3 relative z-10">
+        <div data-screen-spin-ignore="true" className="footer-bg flex flex-col pt-2 pb-4 px-3 relative z-10">
           {/* Win Display Bar */}
           <div className="flex justify-center items-center mb-3">
             <div className="text-yellow-400 font-bold text-xl mr-2">WIN</div>
