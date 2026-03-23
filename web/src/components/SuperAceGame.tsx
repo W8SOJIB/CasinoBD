@@ -439,15 +439,15 @@ export default function SuperAceGame() {
   }
 
   return (
-    <div className="w-full min-h-screen flex flex-col items-center justify-center bg-black">
+    <div className="w-full min-h-dvh min-h-screen flex flex-col items-center justify-center bg-black overflow-hidden">
       {/* Simple top bar */}
-      <div className="w-full max-w-md px-3 pt-3 pb-2 flex items-center justify-between text-xs text-gray-300">
+      <div className="w-full max-w-md px-2 pt-2 pb-1 flex items-center justify-between gap-2 text-[11px] text-gray-300">
         <div className="flex items-center gap-2">
           <span className="title-font text-white tracking-widest uppercase">
             SuperAce
           </span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <div>
             Balance: <span className="text-yellow-400 font-mono">{formatUnitsFromCents(balanceCents)}</span>
           </div>
@@ -457,7 +457,7 @@ export default function SuperAceGame() {
           </div>
           <button
             onClick={() => signOut(getFirebaseAuth())}
-            className="rounded px-2 py-1 bg-gray-900 border border-gray-700 hover:bg-gray-800"
+            className="rounded px-2 py-1 bg-gray-900 border border-gray-700 hover:bg-gray-800 text-[11px]"
           >
             Sign out
           </button>
@@ -465,7 +465,7 @@ export default function SuperAceGame() {
       </div>
 
       {/* Mobile container */}
-      <div className="relative w-full max-w-md h-[900px] flex flex-col bg-gray-900 shadow-2xl overflow-hidden border-x border-gray-800">
+      <div className="relative w-full max-w-md h-[calc(100dvh-44px)] min-h-[620px] max-h-[900px] flex flex-col bg-gray-900 shadow-2xl overflow-hidden border-x border-gray-800">
         {/* HEADER */}
         <div className="header-bg flex flex-col items-center pt-4 pb-2 relative z-10">
           <h1 className="title-font text-4xl text-white tracking-widest uppercase mb-1 drop-shadow-[0_2px_2px_rgba(0,0,0,1)]">
@@ -557,7 +557,7 @@ export default function SuperAceGame() {
 
           <div
             id="slot-grid"
-            className="grid grid-cols-5 gap-1 w-full h-[60%] min-h-[300px] max-h-[500px] p-1 bg-gradient-to-b from-gray-700 to-gray-900 rounded-sm border-2 border-gray-500 shadow-xl"
+            className="grid grid-cols-5 gap-1 w-full h-[62%] min-h-[280px] max-h-[500px] p-1 bg-gradient-to-b from-gray-700 to-gray-900 rounded-sm border-2 border-gray-500 shadow-xl"
           >
             {grid.map((col, c) =>
               col.map((symbol, r) => {
@@ -620,7 +620,7 @@ export default function SuperAceGame() {
         </div>
 
         {/* FOOTER / CONTROLS */}
-        <div className="footer-bg flex flex-col pt-2 pb-6 px-4 relative z-10">
+        <div className="footer-bg flex flex-col pt-2 pb-4 px-3 relative z-10">
           {/* Win Display Bar */}
           <div className="flex justify-center items-center mb-3">
             <div className="text-yellow-400 font-bold text-xl mr-2">WIN</div>
@@ -629,7 +629,7 @@ export default function SuperAceGame() {
             </div>
           </div>
 
-          <div className="flex justify-between items-center px-2">
+          <div className="flex justify-between items-center px-1">
             {/* Sound toggle */}
             <button
               id="btn-sound"
@@ -680,7 +680,7 @@ export default function SuperAceGame() {
               id="btn-spin"
               disabled={isSpinning}
               onClick={handleSpin}
-              className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-b from-yellow-300 via-yellow-500 to-yellow-700 border-4 border-yellow-200 shadow-[0_5px_15px_rgba(0,0,0,0.5),_inset_0_2px_10px_rgba(255,255,255,0.8)] transform active:scale-95 transition flex items-center justify-center z-20 group disabled:opacity-50 disabled:active:scale-100"
+              className="relative w-[4.5rem] h-[4.5rem] sm:w-20 sm:h-20 rounded-full bg-gradient-to-b from-yellow-300 via-yellow-500 to-yellow-700 border-4 border-yellow-200 shadow-[0_5px_15px_rgba(0,0,0,0.5),_inset_0_2px_10px_rgba(255,255,255,0.8)] transform active:scale-95 transition flex items-center justify-center z-20 group disabled:opacity-50 disabled:active:scale-100"
               type="button"
             >
               <div
@@ -698,7 +698,7 @@ export default function SuperAceGame() {
                   />
                 </svg>
               </div>
-              <span className="absolute text-yellow-900 font-bold title-font text-2xl tracking-wider pointer-events-none drop-shadow-sm">
+              <span className="absolute text-yellow-900 font-bold title-font text-xl tracking-wider pointer-events-none drop-shadow-sm">
                 JILI
               </span>
             </button>
