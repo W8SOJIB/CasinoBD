@@ -191,12 +191,17 @@ export function simulateSuperAceSpin(params: {
   let grid = initGrid(scatterPercent);
   const initialGrid = grid.map((col) => [...col]);
 
-  let scatterCount = 0;
-  for (let c = 0; c < COLS; c++) {
-    for (let r = 0; r < ROWS; r++) {
-      if (initialGrid[c]![r]! === "X") scatterCount += 1;
+  const countScatterInGrid = (targetGrid: SymbolId[][]) => {
+    let count = 0;
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r < ROWS; r++) {
+        if (targetGrid[c]![r]! === "X") count += 1;
+      }
     }
-  }
+    return count;
+  };
+
+  let scatterCount = countScatterInGrid(initialGrid);
 
   // Free-spins are awarded later after we know whether the spin actually won.
   let freeSpinsAwarded = 0;
@@ -254,6 +259,13 @@ export function simulateSuperAceSpin(params: {
   }
 
   const finalGrid = grid.map((col) => [...col]);
+
+  // Use the maximum scatter count seen during the whole spin
+  // (initial grid, each cascade gridAfter, and final visible grid).
+  scatterCount = Math.max(scatterCount, countScatterInGrid(finalGrid));
+  for (const step of steps) {
+    scatterCount = Math.max(scatterCount, countScatterInGrid(step.gridAfter));
+  }
 
   if (specialCardTriggered && balanceWinCents > 0) {
     specialCardDoubled = true;
