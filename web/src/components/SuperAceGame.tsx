@@ -242,6 +242,14 @@ export default function SuperAceGame() {
     window.setTimeout(() => playTone(600, "square", 0.1, 0.02), 50);
   }
 
+  function playScatterSound() {
+    // Distinct "bonus trigger" jingle
+    playTone(523, "triangle", 0.18, 0.11);
+    window.setTimeout(() => playTone(659, "triangle", 0.18, 0.11), 120);
+    window.setTimeout(() => playTone(784, "triangle", 0.28, 0.12), 240);
+    window.setTimeout(() => playTone(1047, "sine", 0.35, 0.1), 380);
+  }
+
   useEffect(() => {
     const a = getFirebaseAuth();
     const unsub = onAuthStateChanged(a, (u) => {
@@ -383,6 +391,7 @@ export default function SuperAceGame() {
 
       // Auto-play free spins if we awarded any on this paid spin.
       if (paid.freeSpinsAwarded > 0) {
+        playScatterSound();
         const sessionSpins = paid.freeSpinsAwarded;
         setFreeGameTotalSpins(sessionSpins);
         setFreeGameRemaining(sessionSpins);
@@ -525,31 +534,63 @@ export default function SuperAceGame() {
               freeGameOpen ? "opacity-100" : "opacity-0"
             }`}
           >
-            <div className="bg-black/80 border border-yellow-500/50 rounded-xl px-6 py-5 text-center shadow-[0_0_30px_rgba(250,204,21,0.25)] w-[90%] max-w-sm">
-              <div className="title-font text-yellow-300 tracking-widest uppercase text-3xl mb-2">
+            {/* particles */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              {freeGameOpen
+                ? Array.from({ length: 16 }).map((_, i) => (
+                    <div
+                      key={`coin-${i}`}
+                      className="absolute text-yellow-300/90 text-xl"
+                      style={{
+                        left: `${(i * 13) % 95}%`,
+                        top: `${(i * 17) % 35}%`,
+                        animation: `fallCoin ${1.4 + (i % 5) * 0.25}s linear ${i * 0.05}s infinite`,
+                      }}
+                    >
+                      💰
+                    </div>
+                  ))
+                : null}
+            </div>
+
+            <div className="free-bonus-panel bg-black/80 border border-yellow-500/60 rounded-xl px-5 py-5 text-center shadow-[0_0_38px_rgba(250,204,21,0.33)] w-[92%] max-w-sm">
+              <div className="bonus-shine absolute inset-0 rounded-xl pointer-events-none"></div>
+
+              <div className="title-font text-yellow-300 tracking-widest uppercase text-4xl sm:text-5xl mb-2 free-title-pop">
                 {freeGamePhase === "intro" ? "FREE GAME" : "CONGRATS!"}
               </div>
-              <div className="text-white font-bold text-sm mb-3">
+              <div className="text-white font-bold text-base sm:text-lg mb-3">
                 {freeGamePhase === "intro" ? (
                   <>
-                    SCATTER BONUS
-                    <div className="text-yellow-300 text-4xl mt-2">{freeGameTotalSpins}</div>
-                    <div className="text-gray-300 text-xs mt-1">SPINS</div>
+                    <div className="uppercase tracking-wide text-white/95 bonus-fade-in">
+                      SCATTER BONUS
+                    </div>
+                    <div className="text-yellow-300 text-6xl sm:text-7xl mt-2 leading-none free-count-pop">
+                      {freeGameTotalSpins}
+                    </div>
+                    <div className="text-yellow-100/95 text-xl sm:text-2xl mt-1 uppercase tracking-[0.15em] free-spins-glow">
+                      FREE SPINS
+                    </div>
                   </>
                 ) : (
                   <>
-                    YOU HAVE WON
-                    <div className="text-yellow-300 text-4xl mt-2">
+                    <div className="uppercase tracking-wide text-white/95 bonus-fade-in">YOU HAVE WON</div>
+                    <div className="text-yellow-300 text-5xl sm:text-6xl mt-2 leading-none free-count-pop">
                       {freeGameTotalWinUnits}
                     </div>
-                    <div className="text-gray-300 text-xs mt-1">TOTAL</div>
+                    <div className="text-yellow-100/95 text-lg mt-1 uppercase tracking-[0.15em] free-spins-glow">
+                      TOTAL WIN
+                    </div>
                   </>
                 )}
               </div>
 
               {freeGamePhase === "intro" ? (
-                <div className="text-xs text-gray-200">
-                  Remaining: <span className="font-bold text-yellow-300">{freeGameRemaining}</span>
+                <div className="mt-1 rounded-lg border border-yellow-300/35 bg-black/50 px-4 py-2 bonus-fade-in">
+                  <div className="text-yellow-100 text-base sm:text-lg uppercase tracking-widest">Remaining</div>
+                  <div className="text-yellow-300 text-4xl sm:text-5xl leading-none free-count-pop">
+                    {freeGameRemaining}
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -557,6 +598,9 @@ export default function SuperAceGame() {
 
           <div
             id="slot-grid"
+            onClick={() => {
+              if (!isSpinning) void handleSpin();
+            }}
             className="grid grid-cols-5 gap-1 w-full h-[62%] min-h-[280px] max-h-[500px] p-1 bg-gradient-to-b from-gray-700 to-gray-900 rounded-sm border-2 border-gray-500 shadow-xl"
           >
             {grid.map((col, c) =>
