@@ -43,8 +43,19 @@ export async function POST(req: NextRequest) {
     const idempotencyKey = parsed.data.idempotencyKey ?? randomUUID();
     const betCents = bet * 100;
 
+    // Admin-configured game tuning (fallback defaults)
+    const configSnap = await firestore.collection("gameConfig").doc("superAce").get();
+    const configData = configSnap.exists ? configSnap.data() ?? {} : {};
+    const luckPercent =
+      typeof configData.luckPercent === "number" ? configData.luckPercent : 50;
+    const scatterPercent =
+      typeof configData.scatterPercent === "number" ? configData.scatterPercent : 2.2;
+
     // Pre-simulate outside the transaction so we can reuse the outcome on commit.
-    const spinResult = simulateSuperAceSpin({ betCents });
+    const spinResult = simulateSuperAceSpin({
+      betCents,
+      config: { luckPercent, scatterPercent },
+    });
     let freeSpinsAwardedNow = 0;
 
     const spinIdempotencyRef = firestore

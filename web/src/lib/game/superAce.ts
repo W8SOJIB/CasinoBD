@@ -52,10 +52,6 @@ const BASE_WEIGHTS: SymbolId[] = [
   "A",
 ];
 
-// SCATTER should be rare. We heavily dilute it by repeating normal weights.
-// With 3x base weights + 1x scatter => P(scatter) ~= 1 / 46 ~= 2.2% per card.
-const WEIGHTS: SymbolId[] = [...BASE_WEIGHTS, ...BASE_WEIGHTS, ...BASE_WEIGHTS, "X"];
-
 export type Coord = { c: number; r: number };
 
 export type SuperAceStep = {
@@ -76,22 +72,31 @@ export type SuperAceSpinResult = {
   specialCardDoubled: boolean;
 };
 
+export type SuperAceConfig = {
+  // 0-100: higher value means more reroll chance when no-win occurs.
+  luckPercent: number;
+  // 0-100: per-cell chance to place SCATTER symbol.
+  scatterPercent: number;
+};
+
 function getRandomIntExclusive(maxExclusive: number) {
   // randomInt's upper bound is exclusive.
   return randomInt(0, maxExclusive);
 }
 
-export function randomSymbolId() {
-  const randIndex = getRandomIntExclusive(WEIGHTS.length);
-  return WEIGHTS[randIndex]!;
+export function randomSymbolId(scatterPercent = 2.2) {
+  const scatterRoll = getRandomIntExclusive(10000) / 100;
+  if (scatterRoll < scatterPercent) return "X";
+  const randIndex = getRandomIntExclusive(BASE_WEIGHTS.length);
+  return BASE_WEIGHTS[randIndex]!;
 }
 
-export function initGrid() {
+export function initGrid(scatterPercent = 2.2) {
   const grid: SymbolId[][] = [];
   for (let c = 0; c < COLS; c++) {
     const col: SymbolId[] = [];
     for (let r = 0; r < ROWS; r++) {
-      col.push(randomSymbolId());
+      col.push(randomSymbolId(scatterPercent));
     }
     grid.push(col);
   }
@@ -174,13 +179,16 @@ function evaluateWins(params: {
 
 export function simulateSuperAceSpin(params: {
   betCents: number;
+  config?: Partial<SuperAceConfig>;
 }): SuperAceSpinResult {
   const { betCents } = params;
+  const luckPercent = Math.max(0, Math.min(100, params.config?.luckPercent ?? 50));
+  const scatterPercent = Math.max(0, Math.min(100, params.config?.scatterPercent ?? 2.2));
 
   let balanceWinCents = 0;
   let currentMultiplierIndex = 0;
 
-  let grid = initGrid();
+  let grid = initGrid(scatterPercent);
   const initialGrid = grid.map((col) => [...col]);
 
   let scatterCount = 0;
@@ -223,7 +231,7 @@ export function simulateSuperAceSpin(params: {
         }
 
         while (survivors.length < ROWS) {
-          survivors.unshift(randomSymbolId());
+          survivors.unshift(randomSymbolId(scatterPercent));
         }
         gridAfter.push(survivors);
       }
@@ -269,7 +277,7 @@ export function simulateSuperAceSpin(params: {
       freeSpinsAwarded = getRandomIntExclusive(100) < 5 ? 10 : 0;
     }
   }
-  return {
+  let finalResult: SuperAceSpinResult = {
     initialGrid,
     steps,
     finalGrid,
@@ -279,5 +287,25 @@ export function simulateSuperAceSpin(params: {
     specialCardTriggered,
     specialCardDoubled,
   };
+
+  // Luck mechanic: if this spin has no win, optionally reroll one extra spin.
+  // Higher luck increases chance to reroll into a winning outcome.
+  if (finalResult.totalWinCents <= 0) {
+    const shouldReroll = getRandomIntExclusive(100) < luckPercent;
+    if (shouldReroll) {
+      const reroll = simulateSuperAceSpin({
+        betCents,
+        config: {
+          luckPercent: 0, // avoid recursive reroll loops
+          scatterPercent,
+        },
+      });
+      if (reroll.totalWinCents > finalResult.totalWinCents) {
+        finalResult = reroll;
+      }
+    }
+  }
+
+  return finalResult;
 }
 

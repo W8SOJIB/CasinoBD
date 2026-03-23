@@ -22,6 +22,11 @@ type AdminUser = {
   updatedAt: unknown;
 };
 
+type GameConfig = {
+  luckPercent: number;
+  scatterPercent: number;
+};
+
 type TabKey = "requests" | "users" | "adjust";
 
 function formatUnits(cents: number) {
@@ -63,6 +68,8 @@ export default function AdminPage() {
   const [adjustUid, setAdjustUid] = useState("");
   const [adjustAmount, setAdjustAmount] = useState("100");
   const [adjustReason, setAdjustReason] = useState("Admin adjustment");
+  const [luckPercent, setLuckPercent] = useState("50");
+  const [scatterPercent, setScatterPercent] = useState("2.2");
 
   useEffect(() => {
     void checkSession();
@@ -138,9 +145,15 @@ export default function AdminPage() {
     }
   }
 
+  async function refreshConfig() {
+    const data = await api<GameConfig>("/api/admin/config", { method: "GET" });
+    setLuckPercent(String(data.luckPercent));
+    setScatterPercent(String(data.scatterPercent));
+  }
+
   useEffect(() => {
     if (!adminUsername) return;
-    void Promise.all([refreshRequests(), refreshUsers()]).catch((e) => {
+    void Promise.all([refreshRequests(), refreshUsers(), refreshConfig()]).catch((e) => {
       setErr(e instanceof Error ? e.message : "Failed to refresh admin data");
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -246,6 +259,34 @@ export default function AdminPage() {
       await refreshUsers();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Adjust failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveGameConfig() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const luck = Number(luckPercent);
+      const scatter = Number(scatterPercent);
+      if (!Number.isFinite(luck) || luck < 0 || luck > 100) {
+        throw new Error("Luck % must be between 0 and 100.");
+      }
+      if (!Number.isFinite(scatter) || scatter < 0 || scatter > 100) {
+        throw new Error("SCATTER % must be between 0 and 100.");
+      }
+
+      await api("/api/admin/config", {
+        method: "POST",
+        body: JSON.stringify({
+          luckPercent: luck,
+          scatterPercent: scatter,
+        }),
+      });
+      await refreshConfig();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Config save failed");
     } finally {
       setBusy(false);
     }
@@ -606,6 +647,39 @@ export default function AdminPage() {
             <div className="text-xs text-gray-500 mt-3">
               Tip: you can also ban/unban and set balance inside the Users tab.
             </div>
+
+            <hr className="my-5 border-gray-800" />
+
+            <div className="text-sm text-gray-300 mb-3 font-bold">Game Luck / SCATTER Config</div>
+
+            <label className="block text-xs text-gray-400 mb-1">
+              Luck % (higher = better chance to get winning spin)
+            </label>
+            <input
+              value={luckPercent}
+              onChange={(e) => setLuckPercent(e.target.value)}
+              className="w-full bg-black border border-gray-800 rounded px-3 py-2 mb-3 text-white text-sm"
+              placeholder="50"
+            />
+
+            <label className="block text-xs text-gray-400 mb-1">
+              SCATTER % (per-card chance)
+            </label>
+            <input
+              value={scatterPercent}
+              onChange={(e) => setScatterPercent(e.target.value)}
+              className="w-full bg-black border border-gray-800 rounded px-3 py-2 mb-4 text-white text-sm"
+              placeholder="2.2"
+            />
+
+            <button
+              disabled={busy}
+              onClick={() => void saveGameConfig()}
+              className="w-full rounded bg-green-600 text-white font-bold py-2 disabled:opacity-60"
+              type="button"
+            >
+              Save Game Config
+            </button>
           </div>
         ) : null}
       </div>
