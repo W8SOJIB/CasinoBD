@@ -50,8 +50,7 @@ const WEIGHTS: SymbolId[] = [
   "Q",
   "K",
   "A",
-  "X",
-  "X",
+  // SCATTER is rare
   "X",
 ];
 
@@ -189,7 +188,11 @@ export function simulateSuperAceSpin(params: {
     }
   }
 
-  const freeSpinsAwarded = scatterCount >= 3 ? 10 : 0;
+  // Not every scatter trigger always grants free spins (matches "rare" behavior).
+  // If scatterCount >= 3, free spins trigger with probability TRIGGER_CHANCE%.
+  const TRIGGER_CHANCE = 50; // 50% demo chance
+  const freeSpinsAwarded =
+    scatterCount >= 3 && getRandomIntExclusive(100) < TRIGGER_CHANCE ? 10 : 0;
 
   // Space Card bonus: random chance to double wins if there is any win.
   // (Probability tuned for demo; adjust later.)

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
@@ -16,6 +17,7 @@ type SpinStep = {
 
 type SpinResponse = {
   balanceCents: number;
+  totalWinCents: number;
   initialGrid: SymbolId[][];
   steps: SpinStep[];
   finalGrid: SymbolId[][];
@@ -179,6 +181,11 @@ export default function SuperAceGame() {
   const [bigWinUnits, setBigWinUnits] = useState("0.00");
 
   const [freeSpinsLeft, setFreeSpinsLeft] = useState(0);
+  const [freeGameOpen, setFreeGameOpen] = useState(false);
+  const [freeGamePhase, setFreeGamePhase] = useState<"intro" | "done">("intro");
+  const [freeGameRemaining, setFreeGameRemaining] = useState(0);
+  const [freeGameTotalSpins, setFreeGameTotalSpins] = useState(0);
+  const [freeGameTotalWinUnits, setFreeGameTotalWinUnits] = useState("0.00");
   const [showSpaceCardBonus, setShowSpaceCardBonus] = useState(false);
   const [spaceCardBonusText, setSpaceCardBonusText] = useState("");
 
@@ -376,14 +383,27 @@ export default function SuperAceGame() {
 
       // Auto-play free spins if we awarded any on this paid spin.
       if (paid.freeSpinsAwarded > 0) {
-        let remaining = paid.freeSpinsLeft;
-        let safety = 0;
-        while (remaining > 0 && safety < 50) {
-          safety++;
-          await sleep(250);
+        const sessionSpins = paid.freeSpinsAwarded;
+        setFreeGameTotalSpins(sessionSpins);
+        setFreeGameRemaining(sessionSpins);
+        setFreeGameTotalWinUnits("0.00");
+        setFreeGamePhase("intro");
+        setFreeGameOpen(true);
+
+        // small "intro" delay before starting free spins
+        await sleep(1200);
+
+        let sessionWinCents = 0;
+        for (let i = 0; i < sessionSpins; i++) {
           const freeRes = await spinOnce("free");
-          remaining = freeRes.freeSpinsLeft;
+          sessionWinCents += freeRes.totalWinCents;
+          setFreeGameRemaining(sessionSpins - i - 1);
         }
+
+        setFreeGameTotalWinUnits((sessionWinCents / 100).toFixed(2));
+        setFreeGamePhase("done");
+        await sleep(2200);
+        setFreeGameOpen(false);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Spin failed";
@@ -499,6 +519,42 @@ export default function SuperAceGame() {
             </div>
           </div>
 
+          {/* Free game overlay (SCATTER bonus) */}
+          <div
+            className={`absolute inset-0 z-40 pointer-events-none flex items-center justify-center transition-opacity duration-300 ${
+              freeGameOpen ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <div className="bg-black/80 border border-yellow-500/50 rounded-xl px-6 py-5 text-center shadow-[0_0_30px_rgba(250,204,21,0.25)] w-[90%] max-w-sm">
+              <div className="title-font text-yellow-300 tracking-widest uppercase text-3xl mb-2">
+                {freeGamePhase === "intro" ? "FREE GAME" : "CONGRATS!"}
+              </div>
+              <div className="text-white font-bold text-sm mb-3">
+                {freeGamePhase === "intro" ? (
+                  <>
+                    SCATTER BONUS
+                    <div className="text-yellow-300 text-4xl mt-2">{freeGameTotalSpins}</div>
+                    <div className="text-gray-300 text-xs mt-1">SPINS</div>
+                  </>
+                ) : (
+                  <>
+                    YOU HAVE WON
+                    <div className="text-yellow-300 text-4xl mt-2">
+                      {freeGameTotalWinUnits}
+                    </div>
+                    <div className="text-gray-300 text-xs mt-1">TOTAL</div>
+                  </>
+                )}
+              </div>
+
+              {freeGamePhase === "intro" ? (
+                <div className="text-xs text-gray-200">
+                  Remaining: <span className="font-bold text-yellow-300">{freeGameRemaining}</span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
           <div
             id="slot-grid"
             className="grid grid-cols-5 gap-1 w-full h-[60%] min-h-[300px] max-h-[500px] p-1 bg-gradient-to-b from-gray-700 to-gray-900 rounded-sm border-2 border-gray-500 shadow-xl"
@@ -535,7 +591,13 @@ export default function SuperAceGame() {
                       </>
                     ) : symbol === "X" ? (
                       <>
-                        <div className={`text-4xl ${ui.colorClass}`}>{ui.char}</div>
+                        <Image
+                          src="/SCATTER.jpg"
+                          alt="SCATTER"
+                          width={48}
+                          height={48}
+                          className="drop-shadow-[0_0_3px_rgba(250,204,21,0.4)]"
+                        />
                         <span className="absolute bg-black/70 text-yellow-300 text-[10px] font-bold px-2 py-0.5 rounded-full z-10 -mt-1 shadow-md">
                           {ui.sub}
                         </span>

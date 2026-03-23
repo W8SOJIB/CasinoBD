@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
 
     // Pre-simulate outside the transaction so we can reuse the outcome on commit.
     const spinResult = simulateSuperAceSpin({ betCents });
+    let freeSpinsAwardedNow = 0;
 
     const spinIdempotencyRef = firestore
       .collection("spinIdempotency")
@@ -97,7 +98,12 @@ export async function POST(req: NextRequest) {
       }
 
       // Award additional free spins on scatter trigger.
-      newFreeSpins += spinResult.freeSpinsAwarded;
+      // Only award on paid spins when the user currently has no active free spins.
+      // This prevents re-triggering during free games.
+      const freeSpinsToAwardNow =
+        mode === "paid" && freeSpins < 1 ? spinResult.freeSpinsAwarded : 0;
+      freeSpinsAwardedNow = freeSpinsToAwardNow;
+      newFreeSpins += freeSpinsToAwardNow;
 
       // Update user balance
       tx.set(
@@ -145,7 +151,7 @@ export async function POST(req: NextRequest) {
         totalWinCents,
         mode,
         scatterCount: spinResult.scatterCount,
-        freeSpinsAwarded: spinResult.freeSpinsAwarded,
+        freeSpinsAwarded: freeSpinsAwardedNow,
         specialCardTriggered: spinResult.specialCardTriggered,
         specialCardDoubled: spinResult.specialCardDoubled,
         // Firestore does not allow nested arrays, so we store grids/steps as JSON strings.
