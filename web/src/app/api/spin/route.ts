@@ -109,10 +109,9 @@ export async function POST(req: NextRequest) {
       }
 
       // Award additional free spins on scatter trigger.
-      // Only award on paid spins when the user currently has no active free spins.
-      // This prevents re-triggering during free games.
+      // Award on paid spins only.
       const freeSpinsToAwardNow =
-        mode === "paid" && freeSpins < 1 ? spinResult.freeSpinsAwarded : 0;
+        mode === "paid" ? spinResult.freeSpinsAwarded : 0;
       freeSpinsAwardedNow = freeSpinsToAwardNow;
       newFreeSpins += freeSpinsToAwardNow;
 

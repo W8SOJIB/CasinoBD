@@ -265,17 +265,9 @@ export function simulateSuperAceSpin(params: {
   }
 
   // SCATTER bonus:
-  // - If scatterCount == 3: award free spins with a rare chance (5%) and only if the paid spin won.
-  // - If scatterCount >= 4: award free spins (100%) and only if the paid spin won.
-  // (This matches your "3 is rare, 4 is guaranteed" requirement.)
-  const hadWin = balanceWinCents > 0;
-  if (hadWin && scatterCount >= 3) {
-    if (scatterCount >= 4) {
-      freeSpinsAwarded = 10;
-    } else {
-      // scatterCount === 3
-      freeSpinsAwarded = getRandomIntExclusive(100) < 5 ? 10 : 0;
-    }
+  // If 3 or more SCATTER appear in the spin, always award 10 free spins.
+  if (scatterCount >= 3) {
+    freeSpinsAwarded = 10;
   }
   let finalResult: SuperAceSpinResult = {
     initialGrid,
