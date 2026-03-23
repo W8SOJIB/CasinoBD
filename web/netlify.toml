@@ -1,7 +1,6 @@
 [build]
-  base = "web"
   command = "npm run build"
-  publish = ".next"
+  # Next.js uses the .next output during runtime; publishing the repo root
+  # lets Netlify pick up the serverless assets correctly.
+  publish = "."
 
-[functions]
-  directory = "netlify/functions"
